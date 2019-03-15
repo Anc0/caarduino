@@ -1,6 +1,6 @@
 #include <Wire.h>
 #include <ESP8266WiFi.h>
-#include <MQTT.h>
+#include <PubSubClient.h>
 #include "config.h"
 
 // MPU6050 Slave Device Address
@@ -28,85 +28,111 @@ const uint8_t MPU6050_REGISTER_ACCEL_XOUT_H =  0x3B;
 const uint8_t MPU6050_REGISTER_SIGNAL_PATH_RESET  = 0x68;
 
 int16_t AccelX, AccelY, AccelZ, Temperature, GyroX, GyroY, GyroZ;
-
-char buf [16];
+double Ax, Ay, Az, T, Gx, Gy, Gz;
+char bufax [16], bufay [16], bufaz [16], bufgx [16], bufgy [16], bufgz [16];
 
 // Wifi and mqtt client classes
-WiFiClient net;
-MQTTClient client;
-
-// Connection to wifi
-void connect() {
-  Serial.print("checking wifi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(1000);
-  }
-  Serial.print("\nconnecting...");
-  while (!client.connect("test")) {
-    Serial.print(".");
-    delay(1000);
-  }
-  Serial.println("\nconnected!");
-}
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
-  // Initialize wifi
-  WiFi.begin(SSID, PASS);
+  // Connect to wifi network
+  connect_wifi();
   // Initialize mqtt client
-  client.begin(MQTT_IP, MQTT_PORT, net);
-  client.setOptions(90, true, 1000);
-  // Connect to WiFi and mqtt broker
-  connect();
+  client.setServer(MQTT_IP, 1883);
   // Initialize sensor
   Wire.begin(sda, scl);
   MPU6050_Init();
 }
 
 void loop() {
-  double Ax, Ay, Az, T, Gx, Gy, Gz;
-  
   Read_RawValue(MPU6050SlaveAddress, MPU6050_REGISTER_ACCEL_XOUT_H);
   
   //divide each with their sensitivity scale factor
   Ax = (double)AccelX/AccelScaleFactor;
   Ay = (double)AccelY/AccelScaleFactor;
   Az = (double)AccelZ/AccelScaleFactor;
-  T = (double)Temperature/340+36.53; //temperature formula
   Gx = (double)GyroX/GyroScaleFactor;
   Gy = (double)GyroY/GyroScaleFactor;
   Gz = (double)GyroZ/GyroScaleFactor;
 
   // Connect to the mqtt broker
-  client.loop();
-  delay(10);
   if (!client.connected()) {
-    connect();
+    connect_mqtt();
   }
-  dtostrf(Ax, 5, 2, buf);
-  client.publish("cabackend/accel1", buf);
+  client.loop();
 
-  Serial.print("Ax: "); Serial.print(Ax);
-  Serial.print(" Ay: "); Serial.print(Ay);
-  Serial.print(" Az: "); Serial.print(Az);
-  Serial.print(" T: "); Serial.print(T);
-  Serial.print(" Gx: "); Serial.print(Gx);
-  Serial.print(" Gy: "); Serial.print(Gy);
-  Serial.print(" Gz: "); Serial.println(Gz);
+  // Convert double to string
+  dtostrf(Ax, 5, 2, bufax);
+  dtostrf(Ay, 5, 2, bufay);
+  dtostrf(Az, 5, 2, bufaz);
+  dtostrf(Gx, 5, 2, bufgx);
+  dtostrf(Gy, 5, 2, bufgy);
+  dtostrf(Gz, 5, 2, bufgz);
 
-  delay(5000);
+  // Publish the measurements
+  client.publish("cabackend/accel01_x", bufax);
+  client.publish("cabackend/accel01_y", bufay);
+  client.publish("cabackend/accel01_z", bufaz);
+  client.publish("cabackend/gyro01_x", bufgx);
+  client.publish("cabackend/gyro01_y", bufgy);
+  client.publish("cabackend/gyro01_z", bufgz);
+  
+  delay(1000);
 }
 
-void I2C_Write(uint8_t deviceAddress, uint8_t regAddress, uint8_t data){
-  Wire.beginTransmission(deviceAddress);
-  Wire.write(regAddress);
-  Wire.write(data);
-  Wire.endTransmission();
+// ################## Wifi connection helper ###################
+
+void connect_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to network: ");
+  Serial.print(SSID);
+
+  WiFi.begin(SSID, PASS);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
 }
 
-// read all 14 register
+// ################## Mqtt connection helper ###################
+
+void connect_mqtt() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "SensorPublisher-";
+    WiFi.mode(WIFI_STA);
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      client.publish("outTopic", "hello world");
+      // ... and resubscribe
+      // client.subscribe("inTopic");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+// ################## Sensor helper functions ##################
+
+// Read from registers
 void Read_RawValue(uint8_t deviceAddress, uint8_t regAddress){
   Wire.beginTransmission(deviceAddress);
   Wire.write(regAddress);
@@ -119,6 +145,13 @@ void Read_RawValue(uint8_t deviceAddress, uint8_t regAddress){
   GyroX = (((int16_t)Wire.read()<<8) | Wire.read());
   GyroY = (((int16_t)Wire.read()<<8) | Wire.read());
   GyroZ = (((int16_t)Wire.read()<<8) | Wire.read());
+}
+
+void I2C_Write(uint8_t deviceAddress, uint8_t regAddress, uint8_t data){
+  Wire.beginTransmission(deviceAddress);
+  Wire.write(regAddress);
+  Wire.write(data);
+  Wire.endTransmission();
 }
 
 //configure MPU6050
