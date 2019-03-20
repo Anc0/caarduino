@@ -1,3 +1,16 @@
+ /*
+ * Typical pin layout used:
+ * ----------------------------------
+ *             MPU          Node     
+ *             6050         MCU      
+ * Signal      Pin          Pin      
+ * ----------------------------------
+ * SCL         SCL          D6
+ * SDA         SDA          D7
+ * 3.3V        3.3V         3.3V
+ * GND         GND          GND
+ */
+ 
 #include <Wire.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -41,7 +54,7 @@ void setup() {
   // Connect to wifi network
   connect_wifi();
   // Initialize mqtt client
-  client.setServer(MQTT_IP, 1883);
+  client.setServer(MQTT_IP, MQTT_PORT);
   // Initialize sensor
   Wire.begin(sda, scl);
   MPU6050_Init();
