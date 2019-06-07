@@ -92,7 +92,6 @@ void loop() {
   client.publish("cabackend/gyro01_x", bufgx);
   client.publish("cabackend/gyro01_y", bufgy);
   client.publish("cabackend/gyro01_z", bufgz);
-  
 }
 
 // ################## Wifi connection helper ###################
