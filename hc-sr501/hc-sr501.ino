@@ -5,77 +5,58 @@
               SR501        MCU
   Signal      Pin          Pin
   ----------------------------------
-  S           OUT          D2
+  S           OUT          D7
   3.3V        VCC          3.3V
   GND         GND          GND
 */
 
-#include <Wire.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include "config.h"
+
+int pirPin = D7; // Input for HC-S501
+int pirValue; // Place to store read PIR Value
+int prevValue = 0;
 
 // Wifi and mqtt client classes
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 char msg_buff [16];
-int prev_val, curr_val;
 
 void setup() {
-  Serial.println("Starting...");
   // Initialize serial communication
   Serial.begin(115200);
-  /*// Connect to wifi network
+  // Connect to wifi network
   connect_wifi();
   // Initialize mqtt client
-  client.setServer(MQTT_IP, 1883);*/
-  Serial.println("Starting...");
+  client.setServer(MQTT_IP, 1883);
+
   // #### INSERT SENSOR INIT ###
-  // Initialize indicator led
-  pinMode(BUILTIN_LED, OUTPUT);
-  digitalWrite(BUILTIN_LED, HIGH);
-  // Initialize reading pin
-  pinMode(D1, INPUT);
-  // Initialize hall value
-  prev_val = LOW;
+  pinMode(pirPin, INPUT);
 }
 
 void loop() {
   // #### INSERT SENSOR READINGS ####
-  curr_val = digitalRead(D1);
-  delay(50);
-  curr_val = digitalRead(D1);
-  /*if(curr_val != prev_val) {
-    send_value(curr_val);
-    prev_val = curr_val;
-    }*/
-
-  if (curr_val == LOW) {
-    digitalWrite(BUILTIN_LED, HIGH);
-    Serial.println("LOW");
-  } else {
-    digitalWrite(BUILTIN_LED, LOW);
-    Serial.println("HIGH");
-  }
-  delay(1000);
-}
-
-
-// ################## Sensor helper functions ##################
-void send_value(int value) {
+  pirValue = digitalRead(pirPin);
+  
   // Connect to the mqtt broker if disconnected
   if (!client.connected()) {
     connect_mqtt();
   }
   client.loop();
-
-  // Publish the measurements
-  if (value == LOW) {
-    client.publish(MQTT_TOPIC, "0");
-  } else {
-    client.publish(MQTT_TOPIC, "1");
+  Serial.println("READING");
+  // If the value changed, send it
+  if (pirValue != prevValue) {
+    Serial.println("SENDING");
+    Serial.println(pirValue);
+    dtostrf(pirValue, 5, 2, msg_buff);
+  
+    // Publish the measurements
+    client.publish("cabackend/test", msg_buff);  
+    prevValue = pirValue;
   }
+  delay(100);
 }
 
 // ################## Wifi connection helper ###################
